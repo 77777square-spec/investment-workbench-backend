@@ -510,12 +510,18 @@ with right:
     flow_html = rows_html(data["aClose"]["sectors"],
                           extra=lambda x: f'流入 {net_amt(x["in"])} / 流出 {net_amt(x["out"])}')
     idx_html = rows_html(data["aClose"]["indices"], val_fn=lambda x: pct(x["change"]))
-    nat_html = '<div style="display:flex;flex-direction:column;gap:8px">'
-    for n in data["aClose"]["national"]:
-        nat_html += f'<div style="background:#f7f8fa;border-radius:8px;padding:8px 10px"><b>{n["h"]}</b><div style="font-size:12px;color:#86909c;margin-top:2px">{n["d"]}</div></div>'
+    nat_list = data["aClose"]["national"]
+    nat_html = '<div style="display:flex;flex-direction:column;gap:6px">'
+    for n in nat_list:
+        nat_html += (
+            f'<details style="background:#f7f8fa;border-radius:8px;padding:8px 10px;font-size:14px">'
+            f'<summary style="cursor:pointer;font-weight:600">{n["h"]}</summary>'
+            f'<div style="font-size:12px;color:#86909c;margin-top:6px;line-height:1.5">{n["d"]}</div>'
+            f'</details>'
+        )
     nat_html += "</div>"
     p4 = card("④ A股 15:00 收盘 · 三大板块资金流（净流入/流出，亿元）", flow_html)
     p4 += card("主要指数涨跌", idx_html)
-    p4 += card("国家层面资讯", nat_html)
+    p4 += card(f"国家层面资讯 · 共 {len(nat_list)} 条，点击展开", nat_html)
 
     st.markdown(p1 + p2 + p3 + p4, unsafe_allow_html=True)
