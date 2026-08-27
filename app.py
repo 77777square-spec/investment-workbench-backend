@@ -23,6 +23,11 @@ from datetime import datetime
 import streamlit as st
 import streamlit.components.v1 as components
 
+try:
+    from st_javascript import st_javascript
+except Exception:
+    st_javascript = None
+
 # ===================== 数据层（与 server.py 同源逻辑） =====================
 TS_API = "https://api.tushare.pro"
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
@@ -414,22 +419,19 @@ with st.sidebar:
     st.caption("演示提示：未填 Token 时行情为示例；热话题/政策资讯为真实新闻源（无需 Token）。")
 
 # ---- 待办本地持久化：从浏览器 localStorage 读取（仅首次初始化）----
-_ls_read = components.html(
-    f"""
-    <script>
-      const raw = localStorage.getItem('{LS_KEY}');
-      try {{ Streamlit.setComponentValue(raw ? JSON.parse(raw) : []); }}
-      catch(e) {{ Streamlit.setComponentValue([]); }}
-    </script>
-    """,
-    height=0,
-    key="ls_read_todos",
-)
+def load_todos_from_ls():
+    if st_javascript is None:
+        return []
+    try:
+        raw = st_javascript(f"localStorage.getItem('{LS_KEY}')")
+        if isinstance(raw, str) and raw.strip():
+            return json.loads(raw)
+    except Exception:
+        pass
+    return []
+
 if "todos" not in st.session_state:
-    if isinstance(_ls_read, list):
-        st.session_state.todos = _ls_read
-    else:
-        st.session_state.todos = []
+    st.session_state.todos = load_todos_from_ls()
 
 # ---- 数据加载 ----
 data = build_dashboard(token.strip(), date_str, llm_endpoint.strip(), llm_key.strip(), llm_model.strip())
@@ -474,7 +476,6 @@ with left:
         </script>
         """,
         height=0,
-        key="ls_write_todos",
     )
 
 # ---- 右：四面板 ----
