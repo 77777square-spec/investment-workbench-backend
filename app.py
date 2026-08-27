@@ -144,21 +144,53 @@ def fetch_global_indices(token, td, mapping):
     return out
 
 
+def em_clist_get(fs, fields, pz=12):
+    """东方财富板块列表：主域名被断时自动切延时镜像(push2delay，约15分钟延迟)"""
+    path = f"/api/qt/clist/get?pn=1&pz={pz}&po=1&np=1&fltt=2&invt=2&fs={fs}&fields={fields}"
+    for host in ("push2.eastmoney.com", "push2delay.eastmoney.com"):
+        try:
+            req = urllib.request.Request("https://" + host + path, headers={**UA, "Referer": "https://quote.eastmoney.com/"})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                j = json.loads(r.read())
+            diff = (j.get("data") or {}).get("diff") or []
+            if diff:
+                return diff
+        except Exception as e:
+            print(f"[warn] 东方财富 {host} 失败：{e}")
+    return []
+
+
+def em_quote_indices(secids):
+    """东方财富指数涨跌幅（全球指数兜底源，无需Token）：secids 形如 {"100.N225": "日经225"}"""
+    path = ("/api/qt/ulist.np/get?fltt=2&secids=" + ",".join(secids.keys()) + "&fields=f12,f14,f3")
+    for host in ("push2.eastmoney.com", "push2delay.eastmoney.com"):
+        try:
+            req = urllib.request.Request("https://" + host + path, headers={**UA, "Referer": "https://quote.eastmoney.com/"})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                j = json.loads(r.read())
+            diff = (j.get("data") or {}).get("diff") or []
+            out = []
+            for d in diff:
+                chg = d.get("f3")
+                if chg is not None and chg != "-":
+                    out.append({"name": secids.get(d.get("f12"), d.get("f14")), "change": float(chg)})
+            if out:
+                return out
+        except Exception as e:
+            print(f"[warn] 东方财富指数 {host} 失败：{e}")
+    return None
+
+
 def fetch_sector_flow():
-    url = ("https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=12&po=1&np=1&fltt=2&invt=2"
-           "&fs=m:90+t:2&fields=f12,f14,f62")
+    diff = em_clist_get("m:90+t:2", "f12,f14,f62")
     try:
-        req = urllib.request.Request(url, headers={**UA, "Referer": "https://quote.eastmoney.com/"})
-        with urllib.request.urlopen(req, timeout=12) as r:
-            j = json.loads(r.read())
-        diff = (j.get("data") or {}).get("diff") or []
         res = []
         for it in diff:
             name = it.get("f14")
             net = it.get("f62")
             if name and net is not None:
                 res.append({"name": name, "net": round(net / 1e8, 1)})
-        return res[:8]
+        return res[:8] if res else None
     except Exception as e:
         print(f"[warn] 东方财富板块资金流失败：{e}")
     return None
@@ -168,26 +200,18 @@ def fetch_sector_flow():
 def fetch_hot_topics():
     """东方财富板块排行（概念/行业），真实热话题"""
     for fs in ("m:90+t:3", "m:90+t:2"):
-        url = (f"https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=12&po=1&np=1&fltt=2&invt=2"
-               f"&fs={fs}&fields=f12,f14,f3,f62")
-        try:
-            req = urllib.request.Request(url, headers={**UA, "Referer": "https://quote.eastmoney.com/"})
-            with urllib.request.urlopen(req, timeout=12) as r:
-                j = json.loads(r.read())
-            diff = (j.get("data") or {}).get("diff") or []
-            if diff:
-                res = []
-                for it in diff[:8]:
-                    name = it.get("f14")
-                    chg = it.get("f3")
-                    if name is None or chg is None:
-                        continue
-                    heat = int(min(99, max(1, round(50 + float(chg) * 3))))
-                    res.append({"topic": name, "heat": heat, "board": "热点板块"})
-                if res:
-                    return res
-        except Exception as e:
-            print(f"[warn] 板块排行 {fs} 失败：{e}")
+        diff = em_clist_get(fs, "f12,f14,f3,f62")
+        if diff:
+            res = []
+            for it in diff[:8]:
+                name = it.get("f14")
+                chg = it.get("f3")
+                if name is None or chg is None:
+                    continue
+                heat = int(min(99, max(1, round(50 + float(chg) * 3))))
+                res.append({"topic": name, "heat": heat, "board": "热点板块"})
+            if res:
+                return res
     return None
 
 
@@ -285,6 +309,8 @@ def build_dashboard(token, date_str, llm_endpoint="", llm_key="", llm_model=""):
 
     us_indices = fetch_global_indices(token, td, {"SPX": "标普500", "IXIC": "纳斯达克", "DJI": "道琼斯"})
     if not us_indices:
+        us_indices = em_quote_indices({"100.SPX": "标普500", "100.NDX": "纳斯达克", "100.DJIA": "道琼斯"})  # 兜底：东财全球指数
+    if not us_indices:
         us_indices = DEMO["usIndices"]; note.append("美股指数(演示)")
 
     indices = []
@@ -296,13 +322,15 @@ def build_dashboard(token, date_str, llm_endpoint="", llm_key="", llm_model=""):
                     indices.append({"name": name, "change": float(r["pct_chg"])})
                     break
     if not indices:
+        indices = em_quote_indices({"1.000001": "上证指数", "0.399001": "深证成指", "0.399006": "创业板指"})  # 兜底：东财
+    if not indices:
         indices = DEMO["aClose"]["indices"]; note.append("A股指数(演示)")
 
     asia_idx = fetch_global_indices(token, td, {"N225": "日经225", "KS11": "韩国综指"})
     if asia_idx:
         jpkr_stocks = asia_idx
     else:
-        asia = fetch_asia()
+        asia = fetch_asia() or em_quote_indices({"100.N225": "日经225", "100.KS11": "韩国综指"})  # 兜底：东财
         jpkr_stocks = asia if asia else DEMO["jpKr"]["stocks"]
         if not asia:
             note.append("日韩(演示)")
