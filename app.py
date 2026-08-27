@@ -181,6 +181,103 @@ def em_quote_indices(secids):
     return None
 
 
+def em_kline_closes(secid, lmt=35, retries=2):
+    """东方财富历史K线收盘价（push2his 域名，免Token）：返回 [(日期, 收盘价), ...]
+    该域名对连发请求敏感，失败后带退避重试。"""
+    path = (f"/api/qt/stock/kline/get?secid={secid}&fields1=f1,f2,f3&fields2=f51,f53"
+            f"&klt=101&fqt=1&end=20500101&lmt={lmt}")
+    for attempt in range(retries + 1):
+        try:
+            req = urllib.request.Request("https://push2his.eastmoney.com" + path,
+                                         headers={**UA, "Referer": "https://quote.eastmoney.com/"})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                j = json.loads(r.read())
+            klines = ((j.get("data") or {}).get("klines")) or []
+            out = []
+            for k in klines:
+                parts = k.split(",")
+                if len(parts) >= 2:
+                    try:
+                        out.append((parts[0], float(parts[1])))
+                    except ValueError:
+                        pass
+            return out
+        except Exception as e:
+            print(f"[warn] 东财K线 {secid} 第{attempt + 1}次失败：{e}")
+            if attempt < retries:
+                time.sleep(3 + attempt * 3)  # 退避：3s、6s
+    return []
+
+
+def tx_kline_closes(code, lmt=35):
+    """腾讯历史K线收盘价（gtimg，免Token）：code 形如 sh000001 / usINX / hkHSI"""
+    try:
+        url = f"https://web.ifzq.gtimg.cn/appstock/app/kline/kline?param={code},day,,,{lmt}"
+        req = urllib.request.Request(url, headers=UA)
+        with urllib.request.urlopen(req, timeout=10) as r:
+            j = json.loads(r.read())
+        out = []
+        for v in (j.get("data") or {}).values():
+            if isinstance(v, dict):
+                days = v.get("day") or v.get("qfqday") or []
+                for d in days:
+                    if len(d) >= 3:
+                        try:
+                            out.append((d[0], float(d[2])))
+                        except ValueError:
+                            pass
+        return out
+    except Exception as e:
+        print(f"[warn] 腾讯K线 {code} 失败：{e}")
+        return []
+
+
+# 走势图配置：每个指数给 腾讯代码(tx) 与 东财代码(em) 两个来源，先腾讯后东财
+TREND_GROUPS = {
+    "A股": {
+        "上证指数": {"tx": "sh000001", "em": "1.000001"},
+        "深证成指": {"tx": "sz399001", "em": "0.399001"},
+        "创业板指": {"tx": "sz399006", "em": "0.399006"},
+    },
+    "美股": {
+        "标普500": {"tx": "usINX", "em": "100.SPX"},
+        "纳斯达克": {"tx": "usIXIC", "em": "100.NDX"},
+        "道琼斯": {"tx": "usDJI", "em": "100.DJIA"},
+    },
+    "日韩": {
+        "日经225": {"tx": None, "em": "100.N225"},
+        "韩国综指": {"tx": None, "em": "100.KS11"},
+    },
+}
+
+
+@st.cache_data(ttl=1800)
+def build_trends(days=30):
+    """近N天各市场指数累计涨跌幅(%)，免Token。腾讯为主源、东财兜底；某市场全失败则跳过。"""
+    try:
+        import pandas as pd
+    except Exception:
+        return {}
+    groups = {}
+    for gname, indices in TREND_GROUPS.items():
+        series = {}
+        for name, srcs in indices.items():
+            kl = []
+            if srcs.get("tx"):
+                kl = tx_kline_closes(srcs["tx"], days + 5)
+            if len(kl) < 5 and srcs.get("em"):
+                kl = em_kline_closes(srcs["em"], days + 5)
+            if len(kl) >= 5:
+                series[name] = pd.Series({d: c for d, c in kl[-days:]})
+            time.sleep(1)  # 请求间留间隔，避免触发东财风控
+        if series:
+            df = pd.DataFrame(series).ffill().bfill()
+            if not df.empty:
+                pct = (df / df.iloc[0] - 1) * 100
+                groups[gname] = {"pct": pct, "last": df.iloc[-1].to_dict()}
+    return groups
+
+
 def fetch_sector_flow():
     diff = em_clist_get("m:90+t:2", "f12,f14,f62")
     try:
@@ -566,3 +663,19 @@ with right:
     p4 += card(f"国家层面资讯 · 共 {len(nat_list)} 条，点击展开", nat_html)
 
     st.markdown(p1 + p2 + p3 + p4, unsafe_allow_html=True)
+
+    # ---- 近30天指数走势（东财历史K线，免Token）----
+    st.divider()
+    st.subheader("📈 近30天指数走势（累计涨跌幅 %）")
+    trends = build_trends()
+    if trends:
+        order = [g for g in ("A股", "美股", "日韩") if g in trends]
+        tabs = st.tabs(order)
+        for tab, gname in zip(tabs, order):
+            with tab:
+                t = trends[gname]
+                st.line_chart(t["pct"], height=260)
+                last = " · ".join(f"{k} {v:,.0f}" for k, v in t["last"].items())
+                st.caption(f"最新收盘：{last}")
+    else:
+        st.caption("走势数据暂不可用")
