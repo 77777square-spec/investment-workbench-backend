@@ -13,19 +13,20 @@
 
 ## 方式 A（推荐）：部署到 Render 免费托管（约 3 分钟，无需信用卡）
 
-1. 把本目录（含 `server.py` / `requirements.txt` / `render.yaml`）上传到你的 GitHub 仓库；
-   或直接用 Render 的 "Deploy from GitHub" 关联该仓库。
-2. 在 Render 新建 Web Service：
+1. 把本仓库（含 `server.py` / `investment-workbench.html` / `requirements.txt` / `render.yaml`）推到你的 GitHub；
+   或在本机 `git push` 已初始化的仓库。
+2. 在 Render 新建 Web Service，选择刚推送的 GitHub 仓库：
    - Runtime: Python 3
-   - Build Command: 留空（无需安装依赖）
+   - Build Command: 留空（无需安装依赖，纯标准库）
    - Start Command: `python server.py`
    - 免费档（Free）即可
 3. 部署完成后，Render 会给你一个网址，形如 `https://xxx.onrender.com`。
-4. 把这个网址填到**前端工作台**右上角「接入实时数据」的"服务地址"里，
-   并在"Tushare Token"里填入老师自己的 32 位 token，保存、刷新即可看到实时行情。
+   **这个网址本身已经同时托管了工作台页面 + 数据接口（同源）**，所以老师不需要再填"服务地址"。
+4. 老师打开 `https://xxx.onrender.com` → 点右上角「接入实时数据」→ **只粘贴自己的 32 位 Tushare Token** → 保存 → 刷新看板，
+   即可看到实时行情。其他面板（美股板块/个股走 Yahoo、A股资金流走东方财富）会自动拉取。
 
-> 也可以把 CloudStudio 前端链接拼上参数直接下发：
-> `https://你的前端网址?backend=https://xxx.onrender.com`
+> 也可继续用已部署的 CloudStudio 静态前端，在「接入实时数据」里把"服务地址"填成上面的 Render 网址、Token 填老师的，效果一样。
+> 或把 CloudStudio 前端链接拼上参数直接下发：`https://你的前端网址?backend=https://xxx.onrender.com`
 
 ---
 
