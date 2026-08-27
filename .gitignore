@@ -1,0 +1,6 @@
+# 不提交：含本地调试 token 的脚本、依赖缓存、临时数据
+__pycache__/
+*.pyc
+tushare-to-json.py
+dashboard.json
+.workbuddy/

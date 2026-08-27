@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: investment-workbench-backend
+    runtime: python
+    plan: free
+    region: oregon
+    startCommand: python server.py
+    # 注意：不要写死 PORT，Render 会通过环境变量注入，server.py 已用 os.environ.get("PORT", 8000) 读取
+    healthCheckPath: /api/dashboard

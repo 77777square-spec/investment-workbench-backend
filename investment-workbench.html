@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>投资顾问 AI 工作台</title>
+<style>
+  :root{
+    --bg:#f4f6fb; --panel:#ffffff; --ink:#1f2330; --sub:#6b7280;
+    --line:#e6e9f0; --brand:#2f6bff; --brand-soft:#eaf1ff;
+    --up:#e23b3b;      /* 涨=红（A股习惯） */
+    --down:#16a34a;    /* 跌=绿 */
+    --warn:#b7791f; --shadow:0 2px 10px rgba(20,30,60,.06);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",Segoe UI,sans-serif;
+       background:var(--bg);color:var(--ink);font-size:14px;line-height:1.5}
+  .topbar{display:flex;align-items:center;gap:16px;padding:14px 22px;background:var(--panel);
+          border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
+  .topbar h1{font-size:17px;font-weight:700}
+  .topbar .date{color:var(--sub);font-size:13px}
+  .topbar .spacer{flex:1}
+  .pill{font-size:12px;padding:4px 10px;border-radius:999px;background:var(--brand-soft);color:var(--brand);font-weight:600}
+  .btn{border:1px solid var(--line);background:#fff;color:var(--ink);padding:6px 12px;border-radius:8px;
+       cursor:pointer;font-size:13px;transition:.15s}
+  .btn:hover{border-color:var(--brand);color:var(--brand)}
+  .btn.primary{background:var(--brand);color:#fff;border-color:var(--brand)}
+
+  .banner{background:#fff7e6;border:1px solid #ffe1a8;color:var(--warn);
+          padding:8px 22px;font-size:12.5px;display:flex;align-items:center;gap:8px}
+  .banner b{color:var(--warn)}
+
+  .layout{display:grid;grid-template-columns:300px 1fr;gap:16px;padding:16px 22px;align-items:start}
+  @media(max-width:920px){.layout{grid-template-columns:1fr}}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);overflow:hidden}
+  .card .hd{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line)}
+  .card .hd .t{font-weight:700;font-size:14px}
+  .card .hd .tag{font-size:11px;color:var(--sub);background:#f1f3f8;padding:2px 8px;border-radius:6px}
+  .card .hd .spacer{flex:1}
+  .card .bd{padding:14px 16px}
+
+  /* 待办 */
+  .todo-add{display:flex;gap:8px;margin-bottom:12px}
+  .todo-add input{flex:1;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px}
+  .todo-add select{border:1px solid var(--line);border-radius:8px;padding:8px;font-size:12px;background:#fff}
+  .todo-list{list-style:none;display:flex;flex-direction:column;gap:8px;max-height:520px;overflow:auto}
+  .todo{display:flex;align-items:flex-start;gap:10px;padding:9px 10px;border:1px solid var(--line);border-radius:10px;background:#fcfdff}
+  .todo.done{opacity:.55}
+  .todo .chk{width:18px;height:18px;margin-top:1px;accent-color:var(--brand);cursor:pointer;flex:0 0 auto}
+  .todo .body{flex:1}
+  .todo .body .txt{font-size:13.5px}
+  .todo.done .body .txt{text-decoration:line-through}
+  .todo .cat{font-size:11px;color:var(--brand);background:var(--brand-soft);padding:1px 7px;border-radius:5px;margin-left:6px}
+  .todo .del{color:#c0392b;cursor:pointer;font-size:12px;opacity:.6}
+  .todo .del:hover{opacity:1}
+  .progress{font-size:12px;color:var(--sub);margin-top:10px}
+  .bar{height:7px;background:#eef1f7;border-radius:99px;overflow:hidden;margin-top:5px}
+  .bar > i{display:block;height:100%;background:var(--brand);width:0}
+
+  /* 网格面板 */
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:1100px){.grid{grid-template-columns:1fr}}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);overflow:hidden}
+  .panel .ph{display:flex;align-items:center;gap:8px;padding:11px 15px;border-bottom:1px solid var(--line)}
+  .panel .ph .n{width:22px;height:22px;border-radius:7px;background:var(--brand);color:#fff;font-size:12px;font-weight:700;
+                display:flex;align-items:center;justify-content:center}
+  .panel .ph .t{font-weight:700}
+  .panel .ph .src{margin-left:auto;font-size:11px;color:var(--sub)}
+  .panel .pb{padding:13px 15px}
+
+  .row{display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px dashed var(--line)}
+  .row:last-child{border-bottom:none}
+  .row .name{font-weight:600}
+  .row .meta{font-size:12px;color:var(--sub)}
+  .pct{font-weight:700;font-variant-numeric:tabular-nums}
+  .up{color:var(--up)} .down{color:var(--down)} .flat{color:var(--sub)}
+  .chip{display:inline-block;font-size:11px;padding:2px 8px;border-radius:6px;background:#f1f3f8;color:#444;margin:2px 4px 2px 0}
+  .heat{height:5px;background:#eef1f7;border-radius:9px;overflow:hidden;width:60px;display:inline-block;vertical-align:middle;margin-left:6px}
+  .heat > i{display:block;height:100%;background:#ff7a45}
+  .news{font-size:13px;padding:6px 0;border-left:3px solid var(--brand-soft);padding-left:10px;margin:6px 0;background:#fafbff;border-radius:0 8px 8px 0}
+  .news .h{font-weight:600}
+  .news .d{font-size:12px;color:var(--sub);margin-top:2px}
+  .flow{display:flex;gap:10px;font-size:12px;margin-top:3px}
+  .flow .in{color:var(--up)} .flow .out{color:var(--down)}
+  .empty{color:var(--sub);font-size:12.5px;padding:8px 0}
+  .foot{color:var(--sub);font-size:11.5px;text-align:center;padding:18px}
+  .modal-bg{position:fixed;inset:0;background:rgba(15,20,40,.4);display:none;align-items:center;justify-content:center;z-index:50}
+  .modal{background:#fff;border-radius:14px;padding:22px;width:440px;max-width:92vw;box-shadow:0 10px 40px rgba(0,0,0,.2)}
+  .modal h3{margin-bottom:12px}
+  .modal label{display:block;font-size:12.5px;color:var(--sub);margin:12px 0 5px}
+  .modal input{width:100%;border:1px solid var(--line);border-radius:8px;padding:9px 11px;font-size:13px}
+  .modal .actions{display:flex;gap:10px;justify-content:flex-end;margin-top:18px}
+  code{background:#f1f3f8;padding:1px 6px;border-radius:5px;font-size:12px}
+  .small{font-size:12px;color:var(--sub)}
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <h1>📊 投资顾问 AI 工作台</h1>
+    <span class="date" id="dateLabel"></span>
+    <span class="spacer"></span>
+    <span class="pill" id="clock">--:--:--</span>
+    <button class="btn" id="cfgBtn">⚙️ 接入实时数据</button>
+    <button class="btn primary" id="refreshBtn">🔄 刷新看板</button>
+  </div>
+
+  <div class="banner" id="banner">
+    <span>⚠️ 当前为 <b>演示模式</b>：展示的是示例数据。点右上角「接入实时数据」填入你的 Tushare Token（服务地址<b>留空</b>即可，部署后会自动同源拉取）即可切换为实时行情；也可打开带参数的链接 <code>?backend=https://你的后端网址</code> 自动绑定。</span>
+  </div>
+
+  <div class="layout">
+    <!-- 左：每日工作 / 待办 -->
+    <div class="card">
+      <div class="hd">
+        <span class="t">📋 今日工作</span>
+        <span class="tag">本地保存</span>
+      </div>
+      <div class="bd">
+        <div class="todo-add">
+          <input id="todoInput" placeholder="添加待办，例如：给客户A做周报" />
+          <select id="todoCat">
+            <option value="客户">客户</option>
+            <option value="研究">研究</option>
+            <option value="交易">交易</option>
+            <option value="行政">行政</option>
+          </select>
+          <button class="btn primary" id="addTodo">+</button>
+        </div>
+        <ul class="todo-list" id="todoList"></ul>
+        <div class="progress">
+          已完成 <span id="doneCount">0</span> / <span id="totalCount">0</span>
+          <div class="bar"><i id="progBar"></i></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 右：4 大信息面板 -->
+    <div>
+      <div class="grid">
+        <!-- 面板1 美股 -->
+        <div class="panel">
+          <div class="ph"><span class="n">1</span><span class="t">美股速览（隔夜/今日重点）</span>
+            <span class="src" id="src1">演示</span></div>
+          <div class="pb" id="p1"></div>
+        </div>
+        <!-- 面板2 A股热话题 -->
+        <div class="panel">
+          <div class="ph"><span class="n">2</span><span class="t">A股今日热话题</span>
+            <span class="src" id="src2">演示</span></div>
+          <div class="pb" id="p2"></div>
+        </div>
+        <!-- 面板3 日韩 -->
+        <div class="panel">
+          <div class="ph"><span class="n">3</span><span class="t">日韩市场 14:00–15:00</span>
+            <span class="src" id="src3">演示</span></div>
+          <div class="pb" id="p3"></div>
+        </div>
+        <!-- 面板4 A股收盘 -->
+        <div class="panel">
+          <div class="ph"><span class="n">4</span><span class="t">A股收盘 15:00 系统数据</span>
+            <span class="src" id="src4">演示</span></div>
+          <div class="pb" id="p4"></div>
+        </div>
+      </div>
+      <div class="foot">数据更新时间：<span id="updatedAt">—</span> ｜ 摘要由大模型生成（接入后生效）</div>
+    </div>
+  </div>
+
+  <!-- 配置弹窗 -->
+  <div class="modal-bg" id="modalBg">
+    <div class="modal">
+      <h3>⚙️ 接入实时数据 & 大模型</h3>
+      <p class="small">把你老师申请到的数据接口地址与大模型密钥填在这里。保存后，工作台会在每次刷新时拉取实时行情，并由大模型生成摘要。</p>
+      <label>服务地址（部署到同一网址时<b>留空即可</b>；本地调试才填 http://localhost:8000）</label>
+      <input id="cfgBase" placeholder="留空=使用当前网址（同源部署推荐）" />
+      <label>Tushare Token（粘贴你自己的，留空则用演示数据）</label>
+      <input id="cfgTushare" placeholder="在 tushare.pro 个人中心复制的 32 位 token" />
+      <label class="small" style="margin-top:8px">填好 Token 并保存后，点「刷新看板」即可看到你自己的实时行情。老师各自填各自的 token，互不影响。</label>
+      <div class="actions">
+        <button class="btn" id="cfgCancel">取消</button>
+        <button class="btn" id="cfgDemo">恢复演示</button>
+        <button class="btn primary" id="cfgSave">保存</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+/* ============== 工具 ============== */
+const $ = s => document.querySelector(s);
+const fmtPct = v => (v>0?'+':'') + v.toFixed(2) + '%';
+const cls = v => v>0?'up':(v<0?'down':'flat');
+const LS_TODO = 'iaw_todos', LS_CFG = 'iaw_cfg', LS_DEMO = 'iaw_demo';
+
+/* ============== 待办（本地持久化） ============== */
+let todos = JSON.parse(localStorage.getItem(LS_TODO) || '[]');
+function saveTodos(){ localStorage.setItem(LS_TODO, JSON.stringify(todos)); renderTodos(); }
+function renderTodos(){
+  const ul = $('#todoList'); ul.innerHTML='';
+  todos.forEach((t,i)=>{
+    const li=document.createElement('li'); li.className='todo'+(t.done?' done':'');
+    li.innerHTML=`<input type="checkbox" class="chk" ${t.done?'checked':''} data-i="${i}">
+      <div class="body"><span class="txt">${t.text}</span><span class="cat">${t.cat}</span></div>
+      <span class="del" data-i="${i}">删除</span>`;
+    ul.appendChild(li);
+  });
+  const done=todos.filter(t=>t.done).length, total=todos.length;
+  $('#doneCount').textContent=done; $('#totalCount').textContent=total;
+  $('#progBar').style.width=(total?done/total*100:0)+'%';
+  ul.querySelectorAll('.chk').forEach(c=>c.onclick=e=>{todos[e.target.dataset.i].done=!todos[e.target.dataset.i].done;saveTodos();});
+  ul.querySelectorAll('.del').forEach(d=>d.onclick=e=>{todos.splice(e.target.dataset.i,1);saveTodos();});
+}
+$('#addTodo').onclick=()=>{
+  const v=$('#todoInput').value.trim(); if(!v)return;
+  todos.push({text:v,cat:$('#todoCat').value,done:false}); $('#todoInput').value=''; saveTodos();
+};
+$('#todoInput').addEventListener('keydown',e=>{if(e.key==='Enter')$('#addTodo').click();});
+if(todos.length===0){
+  todos=[{text:'09:30 复盘隔夜美股与日韩收盘',cat:'研究',done:false},
+         {text:'14:00 盯盘日韩市场政府消息',cat:'交易',done:false},
+         {text:'15:00 汇总A股三大板块资金流',cat:'研究',done:false},
+         {text:'17:00 给重点客户发送盘面简报',cat:'客户',done:false}];
+}
+renderTodos();
+
+/* ============== 演示数据（明确标注） ============== */
+const DEMO = {
+  updatedAt:'演示数据 · 示例',
+  usStocks:{ sectors:[
+      {name:'科技',change:1.82},{name:'金融',change:-0.46},{name:'能源',change:0.93}],
+    movers:[{name:'英伟达 NVDA',change:3.21},{name:'苹果 AAPL',change:-0.74},
+            {name:'特斯拉 TSLA',change:2.05},{name:'摩根大通 JPM',change:-0.31}]},
+  usIndices:[{name:'标普500',change:0.52},{name:'纳斯达克',change:1.13},{name:'道琼斯',change:-0.21}],
+  aTopics:[{topic:'AI算力/光模块',heat:96,board:'通信/电子'},
+           {topic:'半导体国产替代',heat:88,board:'电子'},
+           {topic:'低空经济',heat:81,board:'军工/机械'},
+           {topic:'中特估/红利',heat:74,board:'银行/石油'}],
+  jpKr:{ gov:[{h:'日本央行维持利率不变，措辞偏鸽',d:'日元走弱，利好出口股'},
+             {h:'韩国财政部提示外汇波动，必要时干预',d:'三星电子获支撑'}],
+    stocks:[{name:'丰田汽车',change:1.12},{name:'三星电子',change:-0.88},
+            {name:'软银集团',change:2.34},{name:'SK海力士',change:1.55}]},
+  aClose:{ sectors:[
+      {name:'半导体',in:128.4,out:96.2},{name:'新能源',in:54.1,out:71.8},
+      {name:'金融',in:42.7,out:38.0}],
+    indices:[{name:'上证指数',change:0.62},{name:'深证成指',change:-0.18},
+             {name:'创业板指',change:0.95}],
+    national:[{h:'国常会：研究促进消费政策',d:'关注家电/汽车链'},
+              {h:'央行开展逆回购，流动性平稳',d:'资金面无虞'},
+              {h:'证监会：推进中长期资金入市',d:'利好蓝筹估值'}]}
+};
+
+/* ============== 渲染 ============== */
+function render(data, isLive){
+  $('#banner').style.display = isLive ? 'none' : 'flex';
+  $('#updatedAt').textContent = data.updatedAt||'—';
+  $('#src1').textContent=$('#src2').textContent=$('#src3').textContent=$('#src4').textContent= isLive?'实时':'演示';
+
+  // 面板1
+  let h1='';
+  h1+='<div class="small" style="margin-bottom:6px">三大板块涨跌幅</div>';
+  data.usStocks.sectors.forEach(s=>h1+=`<div class="row"><span class="name">${s.name}</span><span class="pct ${cls(s.change)}">${fmtPct(s.change)}</span></div>`);
+  h1+='<div class="small" style="margin:10px 0 4px">重点个股</div>';
+  data.usStocks.movers.forEach(m=>h1+=`<div class="row"><span class="name">${m.name}</span><span class="pct ${cls(m.change)}">${fmtPct(m.change)}</span></div>`);
+  if(data.usIndices && data.usIndices.length){
+    h1+='<div class="small" style="margin:10px 0 4px">美股三大指数</div>';
+    data.usIndices.forEach(i=>h1+=`<div class="row"><span class="name">${i.name}</span><span class="pct ${cls(i.change)}">${fmtPct(i.change)}</span></div>`);
+  }
+  $('#p1').innerHTML=h1;
+
+  // 面板2
+  let h2='';
+  data.aTopics.forEach(t=>h2+=`<div class="row"><span><span class="name">${t.topic}</span> <span class="chip">${t.board}</span></span><span class="heat"><i style="width:${t.heat}%"></i></span></div>`);
+  $('#p2').innerHTML=h2||'<div class="empty">暂无热话题</div>';
+
+  // 面板3
+  let h3='<div class="small" style="margin-bottom:4px">政府与监管消息</div>';
+  data.jpKr.gov.forEach(g=>h3+=`<div class="news"><div class="h">${g.h}</div><div class="d">${g.d}</div></div>`);
+  h3+='<div class="small" style="margin:10px 0 4px">重点个股（日/韩）</div>';
+  data.jpKr.stocks.forEach(s=>h3+=`<div class="row"><span class="name">${s.name}</span><span class="pct ${cls(s.change)}">${fmtPct(s.change)}</span></div>`);
+  $('#p3').innerHTML=h3;
+
+  // 面板4
+  let h4='<div class="small" style="margin-bottom:4px">三大板块资金流入 / 流出（亿元）</div>';
+  data.aClose.sectors.forEach(s=>h4+=`<div class="row"><span class="name">${s.name}</span><span class="flow"><span class="in">流入 ${s.in}</span><span class="out">流出 ${s.out}</span></span></div>`);
+  h4+='<div class="small" style="margin:10px 0 4px">主要指数</div>';
+  data.aClose.indices.forEach(i=>h4+=`<div class="row"><span class="name">${i.name}</span><span class="pct ${cls(i.change)}">${fmtPct(i.change)}</span></div>`);
+  h4+='<div class="small" style="margin:10px 0 4px">国家层面资讯</div>';
+  data.aClose.national.forEach(n=>h4+=`<div class="news"><div class="h">${n.h}</div><div class="d">${n.d}</div></div>`);
+  $('#p4').innerHTML=h4;
+}
+
+/* ============== 数据加载：优先实时，失败回退演示 ============== */
+async function loadDashboard(){
+  const cfg=JSON.parse(localStorage.getItem(LS_CFG)||'null');
+  // 1) 显式配置了后端地址
+  if(cfg && cfg.base){
+    try{
+      const url=cfg.base.replace(/\/$/,'')+'/api/dashboard?date='+todayStr()+(cfg.tushare?'&token='+encodeURIComponent(cfg.tushare):'');
+      const r=await fetch(url);
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      const data=await r.json();
+      render(data,true);
+      return;
+    }catch(e){ console.warn('实时拉取失败，回退演示：',e); }
+  }
+  // 2) 未配置后端：尝试同源（部署在同一域名时自动生效，老师无需填地址）
+  try{
+    const url='/api/dashboard?date='+todayStr()+(cfg&&cfg.tushare?'&token='+encodeURIComponent(cfg.tushare):'');
+    const r=await fetch(url);
+    if(r.ok){
+      const data=await r.json();
+      render(data,true);
+      return;
+    }
+  }catch(e){ console.warn('同源拉取失败，回退演示：',e); }
+  render(DEMO,false);
+}
+
+/* ============== 时钟 / 日期 ============== */
+function todayStr(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function tick(){
+  const d=new Date();
+  $('#dateLabel').textContent=d.getFullYear()+'年'+(d.getMonth()+1)+'月'+d.getDate()+'日';
+  $('#clock').textContent=d.toLocaleTimeString('zh-CN',{hour12:false});
+}
+setInterval(tick,1000); tick();
+
+/* ============== 配置弹窗 ============== */
+$('#cfgBtn').onclick=()=>{const c=JSON.parse(localStorage.getItem(LS_CFG)||'{}');
+  $('#cfgBase').value=c.base||''; $('#cfgTushare').value=c.tushare||'';
+  $('#modalBg').style.display='flex';};
+$('#cfgCancel').onclick=()=>$('#modalBg').style.display='none';
+$('#cfgSave').onclick=()=>{const base=$('#cfgBase').value.trim();
+  localStorage.setItem(LS_CFG,JSON.stringify({base:base,tushare:$('#cfgTushare').value.trim()}));
+  $('#modalBg').style.display='none'; loadDashboard();};
+$('#cfgDemo').onclick=()=>{localStorage.removeItem(LS_CFG); $('#modalBg').style.display='none'; loadDashboard();};
+$('#refreshBtn').onclick=()=>loadDashboard();
+
+/* 支持通过网址参数预设后端： https://你的云地址?backend=https://你的后端网址 */
+(function(){
+  const p=new URLSearchParams(location.search);
+  const b=p.get('backend');
+  if(b){ const c=JSON.parse(localStorage.getItem(LS_CFG)||'{}'); if(!c.base){ c.base=b; localStorage.setItem(LS_CFG,JSON.stringify(c)); } }
+})();
+
+loadDashboard();
+</script>
+</body>
+</html>
