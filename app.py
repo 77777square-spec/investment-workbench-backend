@@ -217,10 +217,10 @@ def classify_news(news):
         t = (n.get("title") or "")
         intro = (n.get("intro") or n.get("summary") or n.get("content") or "")
         blob = t + " " + intro
-        if any(k in blob for k in POLICY_KW) and len(policy) < 6:
-            policy.append({"h": t.strip(), "d": intro.strip()[:60]})
-        if any(k in blob for k in JK_KW) and len(jk) < 6:
-            jk.append({"h": t.strip(), "d": intro.strip()[:60]})
+        if any(k in blob for k in POLICY_KW) and len(policy) < 8:
+            policy.append({"h": t.strip(), "d": intro.strip()[:100]})
+        if any(k in blob for k in JK_KW) and len(jk) < 14:
+            jk.append({"h": t.strip(), "d": intro.strip()[:100]})
     return policy, jk
 
 
@@ -492,12 +492,18 @@ with right:
                    extra=lambda x: f'{x["board"]} · 热度 {x["heat"]}')
     p2 = card("② A股今日热话题（东方财富板块排行）", p2)
 
-    # 面板3：日韩 14:00-15:00
-    gov_html = '<div style="display:flex;flex-direction:column;gap:8px">'
-    for g in data["jpKr"]["gov"]:
-        gov_html += f'<div style="background:#f7f8fa;border-radius:8px;padding:8px 10px"><b>{g["h"]}</b><div style="font-size:12px;color:#86909c;margin-top:2px">{g["d"]}</div></div>'
+    # 面板3：日韩 14:00-15:00（可展开列表）
+    gov_list = data["jpKr"]["gov"]
+    gov_html = '<div style="display:flex;flex-direction:column;gap:6px">'
+    for g in gov_list:
+        gov_html += (
+            f'<details style="background:#f7f8fa;border-radius:8px;padding:8px 10px;font-size:14px">'
+            f'<summary style="cursor:pointer;font-weight:600">{g["h"]}</summary>'
+            f'<div style="font-size:12px;color:#86909c;margin-top:6px;line-height:1.5">{g["d"]}</div>'
+            f'</details>'
+        )
     gov_html += "</div>"
-    p3 = card("③ 日韩 14:00–15:00（政府/监管消息）", gov_html)
+    p3 = card(f"③ 日韩 14:00–15:00（政府/监管消息 · 共 {len(gov_list)} 条，点击展开）", gov_html)
     p3 += card("日韩重点指数", rows_html(data["jpKr"]["stocks"], val_fn=lambda x: pct(x["change"])))
 
     # 面板4：A股 15:00 收盘
