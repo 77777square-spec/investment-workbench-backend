@@ -1,4 +1,4 @@
-# 后端部署指南（老师电脑无需装 Python）
+# 部署指南（老师电脑无需装 Python）
 
 老师只需要在浏览器里打开**工作台网址**即可使用。真正的行情数据由一个"后端"在云端计算，
 老师这边完全不需要安装 Python。老师填的 Tushare Token 只存在他自己的浏览器里，不会上传到任何服务器。
@@ -10,48 +10,51 @@
 - 美股板块/个股 → Yahoo Finance（服务端拉取，不受浏览器跨域限制）
 - 热话题 / 政策资讯：暂为演示位，需接大模型或新闻源
 
----
-
-## 方式 A（无信用卡，推荐）：Hugging Face Spaces
-
-免费、**无需绑定信用卡**，后端可正常访问外网拉取行情，一个网址同时托管页面与接口。
-
-1. 打开 https://huggingface.co/spaces  → 点右上角 **New Space**
-2. Owner 选自己，Space name 填 `investment-workbench`（随意）→ **SDK 选择 Docker** → 点 Create Space
-3. 进入该 Space 后，左侧选 **Settings → Repository** → 连接你的 GitHub 仓库
-   `77777square-spec/investment-workbench-backend`（或先 Fork 到你自己账号）
-4. 也可以不改 GitHub，直接在 Space 的 **Files** 里把仓库文件（server.py / investment-workbench.html / Dockerfile 等）上传上去
-5. HF 会自动按 `Dockerfile` 构建并启动，几分钟后顶部出现蓝绿网址 `https://你的账号-investment-workbench.hf.space`
-6. 老师打开该网址 → 点右上角「⚙️ 接入实时数据」→ **只粘贴自己的 32 位 Tushare Token**（服务地址留空）→ 保存 → 刷新看板，即见实时行情
-
-> 注意：免费 Space 长时间无人访问会"休眠"，首次打开需要等约 10 秒唤醒，属正常。
+> ⚠️ 老师填的 Tushare Token 必须是 **tushare.pro 个人中心复制的 32 位**字符，不是随便敲的串。
 
 ---
 
-## 方式 B：Render（需要信用卡验证，免费档本身不扣费）
+## ✅ 推荐方案（免信用卡）：Streamlit Community Cloud
 
-Render 免费档也要求绑定一张卡做身份验证（预授权 $1，不扣款）。若你/老师有国际信用卡，最省事：
+完全免费、**无需绑定信用卡**、纯 Python、后端能正常访问外网拉数据。一个 `app.py` 同时承载
+界面 + 数据，老师打开就是一个完整工作台（含可打勾待办 + 四块面板）。
 
-1. 仓库已推到 GitHub：https://github.com/77777square-spec/investment-workbench-backend
-2. 打开 https://render.com/deploy?repo=https://github.com/77777square-spec/investment-workbench-backend
-3. 用 GitHub 登录 → 授权 → 直接点 Deploy（render.yaml 已配好）
-4. 若手动：New Web Service → 选仓库 → Runtime Python 3 → Build Command 留空 → Start Command `python server.py` → Plan Free
-5. 部署完得到 `https://xxx.onrender.com`，老师照方式 A 第 6 步填 Token 即可
+1. 本仓库已推到 GitHub：`https://github.com/77777square-spec/investment-workbench-backend`
+   （你也可以用自己账号新建仓库，把 `app.py` + `requirements.txt` 传上去）
+2. 打开 **https://share.streamlit.io** → 用 GitHub 登录
+3. 点 **Create app / New app**
+   - Repository：`77777square-spec/investment-workbench-backend`
+   - Branch：`main`
+   - Main file path：`app.py`
+   - 其它默认
+4. 点 **Deploy!**
+5. 等 1–2 分钟构建完成，得到一个网址，形如：
+   `https://你的账号-investment-workbench-backend.streamlit.app`
+6. 老师打开该网址 → 左侧「⚙️ 设置」→ **粘贴自己的 32 位 Tushare Token** → 选日期 → 刷新，
+   即看实时行情（不填则显示演示数据）
+
+> 免费档说明：长时间无人访问会自动休眠，首次打开约等 10–30 秒唤醒，正常。
+> 资源约 1 核 CPU / 1GB 内存，够用。仓库需为**公开**（免费档要求）。
 
 ---
 
-## 方式 C：学生本机运行 + 内网穿透（最快，无需注册任何云）
+## 其他方案（备查）
 
-1. 学生电脑（已装好 Python）运行：`python server.py`
-2. 再用一条免费穿透命令把本机端口暴露为公网网址（任选其一）：
-   - `ssh -R 80:localhost:8000 localhost.run`
-   - 或使用 cloudflared / bore 等工具
-3. 把得到的公网网址填到前端"服务地址"即可。
-   注意：此方式依赖学生电脑在线；长期给老师用建议用方式 A/B。
+### 方式 B：Hugging Face Spaces（Docker 档已变为付费）
+HF 的 **Docker Spaces 现在要求付费**（PRO/绑定账单），所以我们不再用它做免费部署。
+若你已订阅 PRO，可参照旧文档用 `Dockerfile` 部署。
 
----
+### 方式 C：Render（需信用卡验证，免费档本身不扣费）
+Render 免费档要求绑定一张卡做身份验证（预授权 $1，不扣款）。有国际信用卡时：
+- 打开 https://render.com/deploy?repo=https://github.com/77777square-spec/investment-workbench-backend
+- 登录 → 授权 → Deploy；或手动 New Web Service → `python server.py` → Plan Free
+- 得到 `https://xxx.onrender.com` 后，用 `server.py` 配套的前端 `investment-workbench.html` 填地址+Token
 
-## 方式 D：纯静态演示（已部署，零后端）
+### 方式 D：学生本机运行 + 内网穿透（最快，零注册）
+1. 学生电脑运行 `python server.py`（需装 Python）
+2. 用 `ssh -R 80:localhost:8000 localhost.run` 或 cloudflared 生成公网网址
+3. 把网址填到前端"服务地址"。依赖学生电脑在线，仅适合临时演示。
 
-前端已部署到 CloudStudio，老师打开即是一个完整的工作台（每日待办可打勾 + 四块面板）。
-未配置后端时显示"演示数据"，配置后端网址 + token 后即变为实时行情。
+### 方式 E：纯静态演示（已部署，零后端）
+前端已部署到 CloudStudio，老师打开即是一个完整工作台（待办可打勾 + 四块面板），
+未配后端时显示"演示数据"。
