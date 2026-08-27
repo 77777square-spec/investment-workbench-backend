@@ -24,7 +24,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 try:
-    from st_javascript import st_javascript
+    from streamlit_javascript import st_javascript
 except Exception:
     st_javascript = None
 
