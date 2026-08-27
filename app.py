@@ -2,10 +2,11 @@
 # -*- coding: utf-8 -*-
 """
 投资顾问 AI 工作台 · Streamlit 版（单文件，免费部署到 Streamlit Community Cloud）
-- 今日工作：可添加 / 打勾 / 进度统计（会话内持久）
+- 今日工作：可添加 / 打勾 / 进度统计，并用浏览器 localStorage 持久化（刷新/隔天不丢）
 - 四大面板：美股速览+三大指数 / A股热话题 / 日韩14-15点 / A股15点收盘资金流
 - 数据：A股指数/美股指数/日韩 = Tushare；A股板块资金流 = 东方财富；美股板块/个股 = Yahoo
-- 任何一项拉不到自动用演示数据补齐，页面照常可用
+- 热话题 = 东方财富板块排行（真实）；政策资讯/日韩消息 = 新浪滚动新闻（真实）+ 可选大模型智能总结
+- 任意一项拉不到自动用演示数据补齐，页面照常可用
 - 老师打开网址 -> 侧栏填自己的 32 位 Tushare Token -> 看实时行情
 
 部署：把本文件 + requirements.txt 推到 GitHub 公开仓库，
@@ -20,10 +21,13 @@ import concurrent.futures
 from datetime import datetime
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 # ===================== 数据层（与 server.py 同源逻辑） =====================
 TS_API = "https://api.tushare.pro"
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+SINA_NEWS = "https://feed.mix.sina.com.cn/api/roll/get?pageid=153&lid=2509&num=40&col=&spec=&date=&ch=01&k=&offset=0"
+LS_KEY = "teacher_todos_v1"   # 浏览器本地存储 key（待办持久化）
 
 DEMO = {
     "usStocks": {
@@ -48,8 +52,7 @@ DEMO = {
                     {"name": "创业板指", "change": 0.95}],
         "national": [{"h": "国常会：研究促进消费政策", "d": "关注家电/汽车链"},
                      {"h": "央行开展逆回购，流动性平稳", "d": "资金面无虞"},
-                     {"h": "证监会：推进中长期资金入市", "d": "利好蓝筹估值"}]
-    }
+                     {"h": "证监会：推进中长期资金入市", "d": "利好蓝筹估值"}]},
 }
 
 
@@ -156,8 +159,115 @@ def fetch_sector_flow():
     return None
 
 
+# ===================== 真实资讯源：热话题 + 政策/日韩 =====================
+def fetch_hot_topics():
+    """东方财富板块排行（概念/行业），真实热话题"""
+    for fs in ("m:90+t:3", "m:90+t:2"):
+        url = (f"https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=12&po=1&np=1&fltt=2&invt=2"
+               f"&fs={fs}&fields=f12,f14,f3,f62")
+        try:
+            req = urllib.request.Request(url, headers={**UA, "Referer": "https://quote.eastmoney.com/"})
+            with urllib.request.urlopen(req, timeout=12) as r:
+                j = json.loads(r.read())
+            diff = (j.get("data") or {}).get("diff") or []
+            if diff:
+                res = []
+                for it in diff[:8]:
+                    name = it.get("f14")
+                    chg = it.get("f3")
+                    if name is None or chg is None:
+                        continue
+                    heat = int(min(99, max(1, round(50 + float(chg) * 3))))
+                    res.append({"topic": name, "heat": heat, "board": "热点板块"})
+                if res:
+                    return res
+        except Exception as e:
+            print(f"[warn] 板块排行 {fs} 失败：{e}")
+    return None
+
+
+POLICY_KW = ["央行", "国常会", "国务院", "证监会", "发改委", "政治局", "财政部", "货币政策",
+             "两会", "易纲", "潘功胜", "稳增长", "促消费", "高质量发展", "降准", "降息",
+             "逆回购", "MLF", "专项债", "一揽子", "扩内需", "稳就业"]
+JK_KW = ["日本", "韩国", "日银", "日本央行", "韩国央行", "三星", "丰田", "日元", "韩元",
+          "岸田", "石破", "文在寅", "尹锡悦", "日经", "首尔", "首尔综指", "东京电子"]
+
+
+def fetch_sina_news():
+    try:
+        req = urllib.request.Request(SINA_NEWS, headers={**UA, "Referer": "https://finance.sina.com.cn/"})
+        with urllib.request.urlopen(req, timeout=12) as r:
+            txt = r.read().decode("utf-8", "ignore")
+        j = json.loads(txt)
+        return (j.get("result") or {}).get("data") or []
+    except Exception as e:
+        print(f"[warn] 新浪新闻失败：{e}")
+    return None
+
+
+def classify_news(news):
+    """关键词分类：政策 / 日韩"""
+    policy, jk = [], []
+    for n in news:
+        t = (n.get("title") or "")
+        intro = (n.get("intro") or n.get("summary") or n.get("content") or "")
+        blob = t + " " + intro
+        if any(k in blob for k in POLICY_KW) and len(policy) < 6:
+            policy.append({"h": t.strip(), "d": intro.strip()[:60]})
+        if any(k in blob for k in JK_KW) and len(jk) < 6:
+            jk.append({"h": t.strip(), "d": intro.strip()[:60]})
+    return policy, jk
+
+
+def llm_summarize(news_titles, endpoint, key, model=""):
+    """可选：用老师自己的大模型把新闻提炼成结构化 JSON（热话题/政策/日韩）"""
+    if not endpoint or not key:
+        return None
+    titles = "\n".join(f"- {t}" for t in news_titles[:40])
+    sys_prompt = ("你是资深财经资讯编辑，服务于一位投资顾问。下面是他今日抓取到的财经新闻标题列表。"
+                  "请提炼并输出严格 JSON（不要任何解释、不要 markdown 代码块）：\n"
+                  '{"hot_topics":[{"topic":"话题名","heat":0到100的整数,"board":"关联板块"}],'
+                  '"policy":[{"h":"国家层面宏观/政策消息标题","d":"一句话要点"}],'
+                  '"japan_korea":[{"h":"日本/韩国政府监管或市场消息标题","d":"一句话要点"}]}\n'
+                  "要求：hot_topics 取 A 股最热的 4-6 个概念/行业板块话题；policy 取国家层面宏观政策类；"
+                  "japan_korea 取日本/韩国政府监管与市场消息。没有相关项则对应数组为空数组。")
+    user_prompt = "今日新闻标题：\n" + titles
+    body = {
+        "messages": [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": 0.3,
+    }
+    if model:
+        body["model"] = model
+    # OpenAI 兼容接口大多支持 json 模式
+    try:
+        body["response_format"] = {"type": "json_object"}
+    except Exception:
+        pass
+    try:
+        data = json.dumps(body).encode("utf-8")
+        req = urllib.request.Request(endpoint, data=data, headers={
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + key,
+        })
+        with urllib.request.urlopen(req, timeout=30) as r:
+            j = json.loads(r.read())
+        content = j["choices"][0]["message"]["content"]
+        content = content.strip()
+        if content.startswith("```"):
+            content = content.split("```")[1]
+            if content.startswith("json"):
+                content = content[4:]
+        return json.loads(content)
+    except Exception as e:
+        print(f"[warn] 大模型摘要失败，回退关键词分类：{e}")
+    return None
+
+
 @st.cache_data(ttl=300)
-def build_dashboard(token, date_str):
+def build_dashboard(token, date_str, llm_endpoint="", llm_key="", llm_model=""):
     note = []
     td = date_str.replace("-", "") if date_str else datetime.now().strftime("%Y%m%d")
 
@@ -199,9 +309,35 @@ def build_dashboard(token, date_str):
     else:
         a_close_sectors = DEMO["aClose"]["sectors"]; note.append("资金流(演示)")
 
-    a_topics = DEMO["aTopics"]; note.append("热话题/政策(演示，待接入)")
-    jpkr_gov = DEMO["jpKr"]["gov"]
-    national = DEMO["aClose"]["national"]
+    # ---- 热话题（东方财富板块排行，真实）----
+    hot = fetch_hot_topics()
+    if hot:
+        a_topics = hot
+    else:
+        a_topics = DEMO["aTopics"]; note.append("热话题(演示)")
+
+    # ---- 政策资讯 / 日韩消息（新浪新闻，真实）+ 可选大模型总结 ----
+    news = fetch_sina_news()
+    national, jpkr_gov = DEMO["aClose"]["national"], DEMO["jpKr"]["gov"]
+    if news:
+        titles = [(n.get("title") or "") for n in news if n.get("title")]
+        llm_out = None
+        if llm_endpoint and llm_key:
+            llm_out = llm_summarize(titles, llm_endpoint, llm_key, llm_model)
+        if llm_out:
+            a_topics = llm_out.get("hot_topics") or a_topics
+            national = llm_out.get("policy") or national
+            jpkr_gov = llm_out.get("japan_korea") or jpkr_gov
+            note.append("热话题/政策/日韩(大模型)")
+        else:
+            pol, jk = classify_news(news)
+            if pol:
+                national = pol
+            if jk:
+                jpkr_gov = jk
+            note.append("政策/日韩(新闻源)")
+    else:
+        note.append("政策/日韩(演示)")
 
     return {
         "updatedAt": datetime.now().strftime("%Y-%m-%d %H:%M") + (" · 实时" if token else " · 演示"),
@@ -266,14 +402,37 @@ with st.sidebar:
     token = st.text_input("Tushare Token", type="password", key="token_input")
     pick = st.date_input("数据日期", datetime.now().date())
     date_str = pick.strftime("%Y-%m-%d")
+    with st.expander("大模型摘要（可选，用于智能总结政策/日韩资讯）"):
+        st.caption("填了下面三项，政策/日韩资讯会由你的大模型智能总结；留空则用新闻源关键词提取。")
+        llm_endpoint = st.text_input("接口地址（兼容 OpenAI）", placeholder="https://api.deepseek.com/v1/chat/completions", key="llm_ep")
+        llm_key = st.text_input("API Key", type="password", key="llm_key")
+        llm_model = st.text_input("模型名（可空）", placeholder="deepseek-chat", key="llm_model")
     if st.button("🔄 刷新数据", type="primary", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
     st.divider()
-    st.caption("演示提示：未填 Token 时所有数据为示例，仅展示版式。")
+    st.caption("演示提示：未填 Token 时行情为示例；热话题/政策资讯为真实新闻源（无需 Token）。")
+
+# ---- 待办本地持久化：从浏览器 localStorage 读取（仅首次初始化）----
+_ls_read = components.html(
+    f"""
+    <script>
+      const raw = localStorage.getItem('{LS_KEY}');
+      try {{ Streamlit.setComponentValue(raw ? JSON.parse(raw) : []); }}
+      catch(e) {{ Streamlit.setComponentValue([]); }}
+    </script>
+    """,
+    height=0,
+    key="ls_read_todos",
+)
+if "todos" not in st.session_state:
+    if isinstance(_ls_read, list):
+        st.session_state.todos = _ls_read
+    else:
+        st.session_state.todos = []
 
 # ---- 数据加载 ----
-data = build_dashboard(token.strip(), date_str)
+data = build_dashboard(token.strip(), date_str, llm_endpoint.strip(), llm_key.strip(), llm_model.strip())
 live = bool(token.strip())
 banner = "🟢 实时数据" if live else "🟡 演示模式（填 Token 后自动切换实时）"
 st.markdown(f"**{banner}** &nbsp;·&nbsp; 更新：{data['updatedAt']} &nbsp;·&nbsp; 说明：{data['note']}")
@@ -281,21 +440,25 @@ st.markdown(f"**{banner}** &nbsp;·&nbsp; 更新：{data['updatedAt']} &nbsp;·&
 # ---- 主体：左待办 + 右四面板 ----
 left, right = st.columns([1, 2.4])
 
-# ---- 左：今日工作（可打勾） ----
+# ---- 左：今日工作（可打勾，持久化）----
 with left:
     st.subheader("📝 今日工作")
-    if "todos" not in st.session_state:
-        st.session_state.todos = []
     new_t = st.text_input("添加一项工作", placeholder="例如：9:30 复盘美股盘前", key="new_todo")
-    if st.button("➕ 添加", key="add_todo") and new_t.strip():
+    c1, c2 = st.columns(2)
+    if c1.button("➕ 添加", key="add_todo") and new_t.strip():
         st.session_state.todos.append({"text": new_t.strip(), "done": False})
+        st.rerun()
+    if c2.button("🗑 清空全部", key="clear_todo"):
+        st.session_state.todos = []
         st.rerun()
     done = sum(1 for t in st.session_state.todos if t["done"])
     total = len(st.session_state.todos)
     if total:
         st.progress(done / total)
-        st.caption(f"已完成 {done}/{total}")
+        st.caption(f"已完成 {done}/{total}（已本地保存，刷新/隔天不丢）")
     st.divider()
+    if not total:
+        st.caption("暂无工作项，在上面添加吧～")
     for i, t in enumerate(st.session_state.todos):
         col1, col2 = st.columns([0.85, 0.15])
         checked = col1.checkbox(t["text"], value=t["done"], key=f"td_{i}")
@@ -303,6 +466,16 @@ with left:
         if col2.button("🗑", key=f"del_{i}"):
             st.session_state.todos.pop(i)
             st.rerun()
+    # 把当前待办写回浏览器 localStorage（每次刷新都同步）
+    components.html(
+        f"""
+        <script>
+          localStorage.setItem('{LS_KEY}', JSON.stringify({json.dumps(st.session_state.todos, ensure_ascii=False)}));
+        </script>
+        """,
+        height=0,
+        key="ls_write_todos",
+    )
 
 # ---- 右：四面板 ----
 with right:
@@ -313,10 +486,10 @@ with right:
               + rows_html(data["usStocks"]["movers"], val_fn=lambda x: pct(x["change"])))
     p1 += card("美股三大指数", rows_html(data["usIndices"], val_fn=lambda x: pct(x["change"])))
 
-    # 面板2：A股热话题
+    # 面板2：A股热话题（真实：东方财富板块排行）
     p2 = rows_html(data["aTopics"], key_name="topic",
                    extra=lambda x: f'{x["board"]} · 热度 {x["heat"]}')
-    p2 = card("② A股今日热话题", p2)
+    p2 = card("② A股今日热话题（东方财富板块排行）", p2)
 
     # 面板3：日韩 14:00-15:00
     gov_html = '<div style="display:flex;flex-direction:column;gap:8px">'
