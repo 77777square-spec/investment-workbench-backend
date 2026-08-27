@@ -217,10 +217,11 @@ def classify_news(news):
         t = (n.get("title") or "")
         intro = (n.get("intro") or n.get("summary") or n.get("content") or "")
         blob = t + " " + intro
+        link = (n.get("url") or "").strip()
         if any(k in blob for k in POLICY_KW) and len(policy) < 8:
-            policy.append({"h": t.strip(), "d": intro.strip()[:100]})
+            policy.append({"h": t.strip(), "d": intro.strip()[:100], "u": link})
         if any(k in blob for k in JK_KW) and len(jk) < 14:
-            jk.append({"h": t.strip(), "d": intro.strip()[:100]})
+            jk.append({"h": t.strip(), "d": intro.strip()[:100], "u": link})
     return policy, jk
 
 
@@ -496,10 +497,16 @@ with right:
     gov_list = data["jpKr"]["gov"]
     gov_html = '<div style="display:flex;flex-direction:column;gap:6px">'
     for g in gov_list:
+        u = g.get("u") or ""
+        title_html = (f'<a href="{u}" target="_blank" style="color:inherit;text-decoration:none">{g["h"]}</a>'
+                      if u else g["h"])
+        src_html = (f'<div style="margin-top:6px"><a href="{u}" target="_blank" '
+                    f'style="font-size:12px;color:#165dff">查看原文 ↗</a></div>' if u else "")
         gov_html += (
             f'<details style="background:#f7f8fa;border-radius:8px;padding:8px 10px;font-size:14px">'
-            f'<summary style="cursor:pointer;font-weight:600">{g["h"]}</summary>'
+            f'<summary style="cursor:pointer;font-weight:600">{title_html}</summary>'
             f'<div style="font-size:12px;color:#86909c;margin-top:6px;line-height:1.5">{g["d"]}</div>'
+            f'{src_html}'
             f'</details>'
         )
     gov_html += "</div>"
@@ -513,10 +520,16 @@ with right:
     nat_list = data["aClose"]["national"]
     nat_html = '<div style="display:flex;flex-direction:column;gap:6px">'
     for n in nat_list:
+        u = n.get("u") or ""
+        title_html = (f'<a href="{u}" target="_blank" style="color:inherit;text-decoration:none">{n["h"]}</a>'
+                      if u else n["h"])
+        src_html = (f'<div style="margin-top:6px"><a href="{u}" target="_blank" '
+                    f'style="font-size:12px;color:#165dff">查看原文 ↗</a></div>' if u else "")
         nat_html += (
             f'<details style="background:#f7f8fa;border-radius:8px;padding:8px 10px;font-size:14px">'
-            f'<summary style="cursor:pointer;font-weight:600">{n["h"]}</summary>'
+            f'<summary style="cursor:pointer;font-weight:600">{title_html}</summary>'
             f'<div style="font-size:12px;color:#86909c;margin-top:6px;line-height:1.5">{n["d"]}</div>'
+            f'{src_html}'
             f'</details>'
         )
     nat_html += "</div>"
