@@ -5,6 +5,7 @@ import random
 import time
 import datetime as dt
 from zoneinfo import ZoneInfo
+from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 import requests
@@ -553,9 +554,6 @@ def main():
             st.cache_data.clear()
             st.rerun()
 
-    tab_us, tab_hot, tab_jpkr, tab_close, tab_todo = st.tabs(
-        ["🌙 隔夜美股", "🔥 A股热点", "🌏 日韩市场", "📊 A股盘后复盘", "✅ 今日待办"])
-
     # ---------- 懒加载：首次访问某个 tab 时才拉对应数据，并缓存到 session_state ----------
     def load_once(key, loader):
         if key not in st.session_state:
@@ -563,8 +561,37 @@ def main():
                 st.session_state[key] = loader()
         return st.session_state[key]
 
+    # ---------- 自定义 Tab 导航：只渲染当前 tab，打开/切换都更快 ----------
+    TABS = [
+        ("🌙 隔夜美股", "隔夜美股"),
+        ("🔥 A股热点", "A股热点"),
+        ("🌏 日韩市场", "日韩市场"),
+        ("📊 A股盘后复盘", "A股盘后复盘"),
+        ("✅ 今日待办", "今日待办"),
+    ]
+    if "cur_tab" not in st.session_state:
+        st.session_state.cur_tab = "隔夜美股"
+    nav_cols = st.columns(len(TABS))
+    for i, (label, key) in enumerate(TABS):
+        with nav_cols[i]:
+            is_active = st.session_state.cur_tab == key
+            if st.button(label, key=f"nav_{i}", use_container_width=True,
+                         type="primary" if is_active else "secondary"):
+                if st.session_state.cur_tab != key:
+                    st.session_state.cur_tab = key
+                    st.rerun()
+    cur = st.session_state.cur_tab
+
     # ============ Tab 1: 隔夜美股 ============
-    with tab_us:
+    if cur == "隔夜美股":
+        # 并发拉取指数与快讯，缩短首屏等待
+        if not all(k in st.session_state for k in ("data_indices", "data_news")):
+            with st.spinner("加载行情与资讯…"):
+                with ThreadPoolExecutor(max_workers=3) as ex:
+                    f_idx = ex.submit(fetch_all_indices)
+                    f_news = ex.submit(fetch_news)
+                    st.session_state["data_indices"] = f_idx.result()
+                    st.session_state["data_news"] = f_news.result()
         us = load_once("data_indices", fetch_all_indices)
         if us:
             names = {"DJIA": "道琼斯", "SPX": "标普500", "NDX": "纳斯达克"}
@@ -625,7 +652,7 @@ def main():
         st.markdown(news_list(filter_news(load_once("data_news", fetch_news), NEWS_KW_US)), unsafe_allow_html=True)
 
     # ============ Tab 2: A股热点 ============
-    with tab_hot:
+    elif cur == "A股热点":
         fenbu = load_once("data_fenbu", fetch_fenbu)
         zt = load_once("data_zt", lambda: fetch_zdt_pool("zt"))
         if fenbu:
@@ -713,7 +740,7 @@ def main():
                             unsafe_allow_html=True)
 
     # ============ Tab 3: 日韩市场 ============
-    with tab_jpkr:
+    elif cur == "日韩市场":
         jk = load_once("data_indices", fetch_all_indices)
         if jk:
             cards = [
@@ -746,7 +773,7 @@ def main():
                     unsafe_allow_html=True)
 
     # ============ Tab 4: A股盘后复盘（参考盘后复盘 PDF · 简化版） ============
-    with tab_close:
+    elif cur == "A股盘后复盘":
         cn = load_once("data_indices", fetch_all_indices)
         fenbu = load_once("data_fenbu", fetch_fenbu)
         zt = load_once("data_zt", lambda: fetch_zdt_pool("zt"))
@@ -850,7 +877,7 @@ def main():
                     unsafe_allow_html=True)
 
     # ============ Tab 5: 今日待办 ============
-    with tab_todo:
+    elif cur == "今日待办":
         if "todos" not in st.session_state:
             ls = load_todos_from_ls()
             st.session_state.todos = ls if ls else [dict(x) for x in DEFAULT_TODOS]
