@@ -343,19 +343,18 @@ def load_todos_from_ls():
 
 
 def sync_todos():
-    """把当前待办写回浏览器 localStorage（同时落一份本地文件做备份）。
+    """把当前待办异步写回浏览器 localStorage（同时落一份本地文件做备份）。
 
-    写入用 st_javascript 注入到主页面执行，避免使用 components.html
-    （该接口在新版 Streamlit 中已被移除）。
+    写入用 st.html 注入 <script> 异步执行，不等待返回值，避免每次操作都阻塞页面。
     """
     items = st.session_state.get("todos", [])
-    if st_javascript is not None:
-        try:
-            st_javascript(
-                f"localStorage.setItem('{LS_KEY}', JSON.stringify("
-                f"{json.dumps(items, ensure_ascii=False)}));")
-        except Exception:  # noqa: BLE001
-            pass
+    try:
+        st.html(
+            f"<script>localStorage.setItem('{LS_KEY}', JSON.stringify("
+            f"{json.dumps(items, ensure_ascii=False)}));</script>"
+        )
+    except Exception:  # noqa: BLE001
+        pass
     try:
         with open(TODO_FILE, "w", encoding="utf-8") as f:
             json.dump(items, f, ensure_ascii=False, indent=1)
@@ -429,6 +428,32 @@ def inject_css():
   .rank-pill.top1 {background:rgba(255,82,82,.18); color:#ff8a80;}
   .done-text {text-decoration:line-through; color:#8b949e;}
   .footer-note {color:#58606a; font-size:.75rem; text-align:center; margin-top:28px;}
+
+  /* ---- 覆盖 Streamlit 原生亮色组件 ---- */
+  /* 进度条：柔和的金色 */
+  div[data-testid="stProgress"] > div > div {background: #ffd76e !important;}
+  div[data-testid="stProgress"] > div {background: #21262d !important; border-radius: 4px !important;}
+  /* 按钮：深色背景、金色边框/文字 */
+  .stButton>button {background: #161b22 !important; color: #e6edf3 !important;
+                    border: 1px solid #30363d !important; border-radius: 8px !important;
+                    font-weight: 600 !important; transition: all .2s ease;}
+  .stButton>button:hover {background: #1c212b !important; border-color: #ffd76e !important;
+                          color: #ffd76e !important;}
+  .stButton>button:active {background: #232a33 !important;}
+  /* 复选框：深色边框，选中金色 */
+  div[data-testid="stCheckbox"] label span[data-testid="stMarkdownContainer"] {color: #c9d1d9 !important;}
+  input[type="checkbox"] {accent-color: #ffd76e !important; width: 1.1rem !important; height: 1.1rem !important;}
+  /* 分隔线 */
+  hr {border-color: #21262d !important; margin: 16px 0 !important;}
+  /* 文本提示 / info */
+  div[data-testid="stInfo"] {background: rgba(255,215,110,.08) !important;
+                              border: 1px solid rgba(255,215,110,.25) !important;
+                              color: #c9d1d9 !important; border-radius: 8px !important;}
+  /* 滚动条 */
+  ::-webkit-scrollbar {width: 8px; height: 8px;}
+  ::-webkit-scrollbar-track {background: #0e1117;}
+  ::-webkit-scrollbar-thumb {background: #30363d; border-radius: 4px;}
+  ::-webkit-scrollbar-thumb:hover {background: #484f58;}
 </style>""", unsafe_allow_html=True)
 
 
@@ -824,37 +849,41 @@ def main():
             '<div class="callout">每天的工作清单。勾选完成事项，次日自动重置为默认工作流。'
             "可以自由添加 / 删除。</div>", unsafe_allow_html=True)
 
+        # ---- 新增待办（不等待 JS 返回，异步保存） ----
         col_in, col_btn = st.columns([5, 1])
         with col_in:
             new_item = st.text_input("新增待办", placeholder="输入待办事项后点击右侧按钮添加",
-                                     label_visibility="collapsed")
+                                     label_visibility="collapsed",
+                                     key="todo_new_input")
         with col_btn:
             if st.button("➕ 添加", use_container_width=True):
                 if new_item.strip():
                     st.session_state.todos.append({"text": new_item.strip(), "done": False})
                     sync_todos()
-                    st.rerun()
+                    st.session_state["todo_new_input"] = ""
 
+        # ---- 进度条（柔和配色） ----
         done_cnt = sum(1 for t in st.session_state.todos if t["done"])
         total = len(st.session_state.todos)
         st.progress(done_cnt / total if total else 0)
         st.caption(f"已完成 {done_cnt} / {total}")
 
+        # ---- 待办列表 ----
         for i, todo in enumerate(st.session_state.todos):
             row1, row2, row3 = st.columns([0.6, 10, 0.8])
             with row1:
-                checked = st.checkbox("done", value=todo["done"], key=f"todo_ck_{i}",
-                                      label_visibility="collapsed")
-                if checked != todo["done"]:
-                    st.session_state.todos[i]["done"] = checked
+                def on_check(i=i, current=todo["done"]):
+                    st.session_state.todos[i]["done"] = not current
                     sync_todos()
-                    st.rerun()
+
+                st.checkbox("done", value=todo["done"], key=f"todo_ck_{i}",
+                            label_visibility="collapsed", on_change=on_check)
             with row2:
                 if todo["done"]:
                     st.markdown(f'<span class="done-text" style="font-size:.95rem;">'
                                 f'✔ {todo["text"]}</span>', unsafe_allow_html=True)
                 else:
-                    st.markdown(f'<span style="font-size:.95rem;color:#e6edf3;">'
+                    st.markdown(f'<span style="font-size:.95rem;color:#c9d1d9;">'
                                 f'○ {todo["text"]}</span>', unsafe_allow_html=True)
             with row3:
                 if st.button("🗑", key=f"del_{i}", help="删除该条"):
@@ -875,7 +904,7 @@ def main():
                 sync_todos()
                 st.rerun()
 
-        # 每次渲染结束同步一次到浏览器 localStorage（持久化，刷新/重启不丢）
+        # 兜底同步（理论上异步写入已处理，这里再补一次确保刷新/关闭页面前落盘）
         sync_todos()
 
     st.markdown(
