@@ -547,15 +547,25 @@ def main():
             f'<span class="badge" style="border-color:{phase_color}55; color:{phase_color};">'
             f'⏱ {phase}</span></div>', unsafe_allow_html=True)
         if st.button("🔄 刷新数据", use_container_width=True):
+            for k in list(st.session_state.keys()):
+                if k.startswith("data_"):
+                    del st.session_state[k]
             st.cache_data.clear()
             st.rerun()
 
     tab_us, tab_hot, tab_jpkr, tab_close, tab_todo = st.tabs(
         ["🌙 隔夜美股", "🔥 A股热点", "🌏 日韩市场", "📊 A股盘后复盘", "✅ 今日待办"])
 
+    # ---------- 懒加载：首次访问某个 tab 时才拉对应数据，并缓存到 session_state ----------
+    def load_once(key, loader):
+        if key not in st.session_state:
+            with st.spinner(""):
+                st.session_state[key] = loader()
+        return st.session_state[key]
+
     # ============ Tab 1: 隔夜美股 ============
     with tab_us:
-        us = fetch_all_indices()
+        us = load_once("data_indices", fetch_all_indices)
         if us:
             names = {"DJIA": "道琼斯", "SPX": "标普500", "NDX": "纳斯达克"}
             cards = []
@@ -591,7 +601,7 @@ def main():
             help="例如：105.AAPL,105.NVDA,106.BA。修改后点击页面任意刷新即可生效。")
         secids = ",".join(x.strip() for x in custom.split(",") if x.strip()) or \
             ",".join(f"{m}.{c}" for m, c in US_WATCH)
-        stocks = fetch_quotes(secids)
+        stocks = load_once("data_us_stocks", lambda: fetch_quotes(secids))
         if stocks:
             rows = []
             order = [s.strip() for s in secids.split(",")]
@@ -612,12 +622,12 @@ def main():
                 unsafe_allow_html=True)
 
         st.markdown(sec_title("美股相关资讯", "东方财富 7x24 快讯 · 自动筛选"), unsafe_allow_html=True)
-        st.markdown(news_list(filter_news(fetch_news(), NEWS_KW_US)), unsafe_allow_html=True)
+        st.markdown(news_list(filter_news(load_once("data_news", fetch_news), NEWS_KW_US)), unsafe_allow_html=True)
 
     # ============ Tab 2: A股热点 ============
     with tab_hot:
-        fenbu = fetch_fenbu()
-        zt = fetch_zdt_pool("zt")
+        fenbu = load_once("data_fenbu", fetch_fenbu)
+        zt = load_once("data_zt", lambda: fetch_zdt_pool("zt"))
         if fenbu:
             ratio = fenbu["up"] / max(fenbu["up"] + fenbu["down"], 1)
             if ratio > 0.65:
@@ -641,7 +651,7 @@ def main():
         with c1:
             st.markdown(sec_title("概念板块涨幅 TOP10"), unsafe_allow_html=True)
             rows = []
-            for i, r in enumerate(fetch_sector_rank("concept", 10), 1):
+            for i, r in enumerate(load_once("data_sector_concept", lambda: fetch_sector_rank("concept", 10)), 1):
                 c = cls_of(r["pct"])
                 rows.append([
                     f'<span class="rank-pill{" top1" if i == 1 else ""}">{i}</span>',
@@ -655,7 +665,7 @@ def main():
         with c2:
             st.markdown(sec_title("行业板块涨幅 TOP10"), unsafe_allow_html=True)
             rows = []
-            for i, r in enumerate(fetch_sector_rank("industry", 10), 1):
+            for i, r in enumerate(load_once("data_sector_industry", lambda: fetch_sector_rank("industry", 10)), 1):
                 c = cls_of(r["pct"])
                 rows.append([
                     f'<span class="rank-pill{" top1" if i == 1 else ""}">{i}</span>',
@@ -671,7 +681,7 @@ def main():
         with c3:
             st.markdown(sec_title("个股人气榜 TOP10", "东方财富 A股人气排行"), unsafe_allow_html=True)
             rows = []
-            for r in fetch_hot_rank(10):
+            for r in load_once("data_hot_rank", lambda: fetch_hot_rank(10)):
                 c = cls_of(r.get("pct"))
                 rows.append([
                     f'<span class="rank-pill{" top1" if r["rank"] == 1 else ""}">{r["rank"]}</span>',
@@ -704,7 +714,7 @@ def main():
 
     # ============ Tab 3: 日韩市场 ============
     with tab_jpkr:
-        jk = fetch_all_indices()
+        jk = load_once("data_indices", fetch_all_indices)
         if jk:
             cards = [
                 index_card("日经225", jk.get("N225", {}).get("f2"),
@@ -732,15 +742,15 @@ def main():
 
         st.markdown(sec_title("日韩市场资讯", "政府消息 · 央行动态 · 重要个股"),
                     unsafe_allow_html=True)
-        st.markdown(news_list(filter_news(fetch_news(), NEWS_KW_JPKR, limit=10)),
+        st.markdown(news_list(filter_news(load_once("data_news", fetch_news), NEWS_KW_JPKR, limit=10)),
                     unsafe_allow_html=True)
 
     # ============ Tab 4: A股盘后复盘（参考盘后复盘 PDF · 简化版） ============
     with tab_close:
-        cn = fetch_all_indices()
-        fenbu = fetch_fenbu()
-        zt = fetch_zdt_pool("zt")
-        dt_pool = fetch_zdt_pool("dt")
+        cn = load_once("data_indices", fetch_all_indices)
+        fenbu = load_once("data_fenbu", fetch_fenbu)
+        zt = load_once("data_zt", lambda: fetch_zdt_pool("zt"))
+        dt_pool = load_once("data_dt", lambda: fetch_zdt_pool("dt"))
 
         # 指数卡片
         if cn:
@@ -776,8 +786,8 @@ def main():
             idx_desc = "、".join(
                 f'{cn.get(c, {}).get("f14", "")} {fmt_pct(cn.get(c, {}).get("f3"))}'
                 for c in ("000001", "399001", "399006") if cn.get(c)) or "指数数据获取失败"
-            flow_in = fetch_sector_flow("in", 1)
-            flow_out = fetch_sector_flow("out", 1)
+            flow_in = load_once("data_flow_in", lambda: fetch_sector_flow("in", 1))
+            flow_out = load_once("data_flow_out", lambda: fetch_sector_flow("out", 1))
             fin = flow_in[0]["name"] if flow_in else "--"
             fout = flow_out[0]["name"] if flow_out else "--"
             st.markdown(
@@ -808,7 +818,7 @@ def main():
         c1, c2 = st.columns(2)
         with c1:
             rows = []
-            for r in fetch_sector_flow("in", 10):
+            for r in load_once("data_flow_in_10", lambda: fetch_sector_flow("in", 10)):
                 c = cls_of(r["pct"])
                 rows.append([r["name"], colorize(fmt_pct(r["pct"]), c),
                              colorize(fmt_yi(r["flow"]), "up"),
@@ -821,7 +831,7 @@ def main():
                 unsafe_allow_html=True)
         with c2:
             rows = []
-            for r in fetch_sector_flow("out", 10):
+            for r in load_once("data_flow_out_10", lambda: fetch_sector_flow("out", 10)):
                 c = cls_of(r["pct"])
                 rows.append([r["name"], colorize(fmt_pct(r["pct"]), c),
                              colorize(fmt_yi(r["flow"]), "down"),
@@ -836,7 +846,7 @@ def main():
         # 国家层面资讯
         st.markdown(sec_title("国家层面资讯", "政策 · 部委 · 宏观"),
                     unsafe_allow_html=True)
-        st.markdown(news_list(filter_news(fetch_news(), NEWS_KW_CN_GOV, limit=10)),
+        st.markdown(news_list(filter_news(load_once("data_news", fetch_news), NEWS_KW_CN_GOV, limit=10)),
                     unsafe_allow_html=True)
 
     # ============ Tab 5: 今日待办 ============
