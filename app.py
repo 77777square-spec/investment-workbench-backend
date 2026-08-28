@@ -367,6 +367,13 @@ def sync_todos():
 def inject_css():
     st.markdown("""
 <style>
+  /* 强制深色背景：即使 .streamlit/config.toml 未生效也不变成浅色 */
+  .stApp {background: #0e1117 !important; color: #e6edf3 !important;}
+  header[data-testid="stHeader"] {background: rgba(14,17,23,.9) !important;}
+  div[data-testid="stTabs"] button {color: #c9d1d9 !important;}
+  div[data-testid="stTabs"] button[aria-selected="true"] {color: #ffd76e !important; border-bottom: 2px solid #ffd76e !important;}
+  .stTextInput>div>div>input {background: #161b22 !important; color: #e6edf3 !important; border: 1px solid #30363d !important;}
+
   .block-container {padding-top: 1.2rem; padding-bottom: 3rem; max-width: 1400px;}
   div[data-testid="stMarkdown"] p {margin-bottom: 0;}
   .up   {color: #ff5252; font-weight: 600;}
